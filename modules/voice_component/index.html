@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body {
+        color: #262730;
+        font-family: sans-serif;
+        margin: 0;
+      }
+
+      button {
+        background: #ff4b4b;
+        border: 0;
+        border-radius: 0.5rem;
+        color: white;
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 0.65rem 1rem;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.65;
+      }
+
+      #status {
+        display: inline-block;
+        margin-left: 0.75rem;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="listen" type="button">🎙️ Start speaking</button>
+    <span id="status" role="status">Ready</span>
+    <script>
+      const listenButton = document.getElementById("listen");
+      const status = document.getElementById("status");
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recognition;
+
+      function setFrameHeight() {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type: "streamlit:setFrameHeight",
+            height: document.body.scrollHeight,
+          },
+          "*"
+        );
+      }
+
+      function setStatus(message) {
+        status.textContent = message;
+        setFrameHeight();
+      }
+
+      function setComponentValue(value) {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type: "streamlit:setComponentValue",
+            value: value,
+          },
+          "*"
+        );
+      }
+
+      function notifyComponentReady() {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type: "streamlit:componentReady",
+            apiVersion: 1,
+          },
+          "*"
+        );
+      }
+
+      function startListening() {
+        if (!SpeechRecognition) {
+          setStatus("Speech recognition is not supported in this browser.");
+          return;
+        }
+
+        if (!window.isSecureContext) {
+          setStatus("Microphone access requires localhost or a secure HTTPS page.");
+          return;
+        }
+
+        recognition = new SpeechRecognition();
+        recognition.lang = "en-IN";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        let finalTranscript = "";
+
+        recognition.onstart = function () {
+          listenButton.disabled = true;
+          setStatus("Listening… Speak a command.");
+        };
+
+        recognition.onresult = function (event) {
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            if (event.results[index].isFinal) {
+              finalTranscript += event.results[index][0].transcript + " ";
+            }
+          }
+        };
+
+        recognition.onerror = function (event) {
+          const messages = {
+            "not-allowed": "Microphone access was denied. Allow it in your browser.",
+            "no-speech": "No speech detected. Try again.",
+            "network": "Speech recognition needs a network connection in this browser.",
+          };
+          setStatus(messages[event.error] || "Speech recognition error: " + event.error);
+        };
+
+        recognition.onend = function () {
+          listenButton.disabled = false;
+          const transcript = finalTranscript.trim();
+          if (transcript) {
+            setComponentValue({
+              transcript: transcript,
+              event_id: Date.now().toString() + Math.random().toString(36).slice(2),
+            });
+            setStatus("Heard: " + transcript);
+          } else {
+            setStatus("I didn't hear a command. Try again.");
+          }
+          setFrameHeight();
+        };
+
+        try {
+          recognition.start();
+        } catch (error) {
+          listenButton.disabled = false;
+          setStatus("Could not start the microphone: " + error.message);
+        }
+      }
+
+      listenButton.addEventListener("click", startListening);
+      window.addEventListener("message", function (event) {
+        if (
+          event.source === window.parent &&
+          event.data &&
+          event.data.type === "streamlit:render"
+        ) {
+          notifyComponentReady();
+          setFrameHeight();
+        }
+      });
+
+      notifyComponentReady();
+      setFrameHeight();
+    </script>
+  </body>
+</html>
